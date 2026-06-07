@@ -1,23 +1,26 @@
 {
-  "name": "cdk-dia",
-  "version": "0.12.3",
-  "description": "🎡 Automated diagrams of CDK provisioned infrastructure",
+  "name": "@skyionblue/cdk-dia",
+  "version": "1.0.0",
+  "description": "Automated diagrams of CDK provisioned infrastructure with branding support",
   "scripts": {
     "build-watch": "tsc --watch",
-    "build": "tsc",
+    "build": "tsc && ./scripts/npm-prepare.sh",
     "prepublishOnly": "./scripts/npm-prepare.sh",
-    "test": "tsc && jest"
+    "test": "tsc && ./scripts/npm-prepare.sh && jest"
   },
   "bin": {
+    "tm-cdk-dia": "dist/bin/cli.js",
     "cdk-dia": "dist/bin/cli.js"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
     "dist",
-    "icons"
+    "icons",
+    "themes",
+    "assets"
   ],
-  "author": "Tom Roshko @pistazie",
+  "author": "TrueMark",
   "license": "MIT",
   "dependencies": {
     "aws-cdk-lib": "^2.201.0",
@@ -28,6 +31,7 @@
     "hasbin": "^1.2.3",
     "lodash": "^4.17.21",
     "sanitize-filename": "^1.6.3",
+    "sharp": "^0.33.5",
     "terminal-link": "^2.1.1",
     "ts-graphviz": "^2.1.6",
     "values.js": "^2.1.1",
@@ -43,6 +47,7 @@
     "@types/jest-specific-snapshot": "^0.5.9",
     "@types/lodash": "^4.17.17",
     "@types/node": "^24.0.1",
+    "@types/sharp": "^0.31.1",
     "@types/yargs": "^17.0.33",
     "@typescript-eslint/eslint-plugin": "^8.34.0",
     "@typescript-eslint/parser": "^8.34.0",
@@ -59,10 +64,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pistazie/cdk-dia.git"
+    "url": "git+https://github.com/skyionblue/cdk-dia.git"
   },
   "bugs": {
-    "url": "https://github.com/pistazie/cdk-dia/issues"
+    "url": "https://github.com/skyionblue/cdk-dia/issues"
   },
-  "homepage": "https://github.com/pistazie/cdk-dia#readme"
+  "homepage": "https://github.com/skyionblue/cdk-dia#readme",
+  "publishConfig": {
+    "access": "public"
+  }
 }

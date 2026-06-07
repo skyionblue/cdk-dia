@@ -1,4 +1,5 @@
 import * as diagram from "../diagram/index"
+import {CdkDiaTheme} from "../brand/theme"
 
 export interface DiagramRenderer {
     render(props: RenderingProps): Promise<RenderingOutput>
@@ -6,6 +7,7 @@ export interface DiagramRenderer {
 
 export abstract class RenderingProps {
     diagram: diagram.Diagram
+    theme?: CdkDiaTheme
 }
 export interface RenderingOutput {
     userOutput()

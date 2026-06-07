@@ -2,7 +2,7 @@ import * as fs from 'fs'
 import chalk from "chalk"
 import path, {dirname} from "path"
 import * as diagram from "../../diagram"
-import {DiagramRenderer, RenderingOutput} from "../diagram-renderer"
+import {DiagramRenderer, RenderingOutput, RenderingProps} from "../diagram-renderer"
 import {CytoscapeGenerator} from "./cytoscape-generator"
 import * as fs_extra  from 'fs-extra'
 
@@ -15,7 +15,7 @@ export class CytoscapeJsOutput implements RenderingOutput {
     }
 }
 
-interface CytoscapeProps{
+interface CytoscapeProps extends RenderingProps {
     diagram: diagram.Diagram,
     path: string
 }
@@ -24,6 +24,8 @@ export class Cytoscape implements DiagramRenderer {
 
     async render(props: CytoscapeProps): Promise<CytoscapeJsOutput> {
         const basePath = props.path.replace(/\.[^/.]+$/, "")
+
+        fs.mkdirSync(path.resolve(path.dirname(basePath)), { recursive: true })
 
         let iconsPath: string
         if (__dirname.includes("dist")){

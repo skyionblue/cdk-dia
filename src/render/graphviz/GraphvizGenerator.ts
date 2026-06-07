@@ -3,18 +3,19 @@ import * as diagram from "../../diagram"
 import * as styling from "./styling"
 import * as _ from "lodash"
 import wrap from "word-wrap"
+import {CdkDiaTheme} from "../../brand/theme"
 
 export class GraphvizGenerator {
 
     /**
      * Generates a ts-graphviz repersentation of a Diagram
      */
-    generate(dia: diagram.Diagram): RootGraphModel{
+    generate(dia: diagram.Diagram, theme?: CdkDiaTheme): RootGraphModel{
 
         const rootGraph = digraph('Diagram')
-        styling.applyBaseGraphStyling(rootGraph)
+        styling.applyBaseGraphStyling(rootGraph, theme)
 
-        this.diagramGraph(rootGraph, dia)
+        this.diagramGraph(rootGraph, dia, theme)
         return rootGraph
     }
 
@@ -75,16 +76,16 @@ export class GraphvizGenerator {
         return words
     }
 
-    private diagramGraph(rootGraph: RootGraphModel, diagram1: diagram.Diagram) {
+    private diagramGraph(rootGraph: RootGraphModel, diagram1: diagram.Diagram, theme?: CdkDiaTheme) {
 
         const root: SubgraphModel = rootGraph.createSubgraph(diagram1.root.id)
 
-        this.addToGraph(root, diagram1.root)
+        this.addToGraph(root, diagram1.root, theme)
 
         this.addEdges(rootGraph, diagram1.root)
     }
 
-    private addToGraph(g: SubgraphModel, node: diagram.Component) {
+    private addToGraph(g: SubgraphModel, node: diagram.Component, theme?: CdkDiaTheme) {
 
         const labelFontSize = 12
         const charsPerLine = labelFontSize * 1.8
@@ -93,12 +94,14 @@ export class GraphvizGenerator {
 
             const subGraph = g.createSubgraph(`cluster-SubGraph.${node.label}`)
 
-            subGraph.attributes.graph.set("label", node.label.join(" "))
+            const rawLabel = node.label.join(" ")
+            const displayLabel = theme?.stackLabels?.[rawLabel] ?? rawLabel
+            subGraph.attributes.graph.set("label", displayLabel)
 
-            styling.applyClusterStyling(subGraph, node.depth())
+            styling.applyClusterStyling(subGraph, node.depth(), theme)
 
 
-            node.subComponents().forEach(sub => this.addToGraph(subGraph, sub))
+            node.subComponents().forEach(sub => this.addToGraph(subGraph, sub, theme))
 
         } else {
             const gnode = g.createNode(node.id)

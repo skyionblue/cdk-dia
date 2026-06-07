@@ -12,7 +12,9 @@ const exec = util.promisify(childProcess.exec)
 import * as diagram from "../../diagram"
 import {DiagramRenderer, RenderingOutput, RenderingProps, RenderingError} from "../diagram-renderer"
 import {GraphvizGenerator} from "./GraphvizGenerator"
+import {PostProcessor} from "../../brand/post-processor"
 import * as path from "path"
+import {RootGraphModel} from "ts-graphviz"
 
 export class GraphvizRenderingProps extends RenderingProps {
     diagram: diagram.Diagram
@@ -43,8 +45,14 @@ export class Graphviz implements DiagramRenderer {
         const targetDotPath = `${basePath}.dot`
         const targetPngPath = `${basePath}.png`
 
-        this.renderToDot(props.diagram, targetDotPath)
+        fs.mkdirSync(path.dirname(path.resolve(targetPngPath)), { recursive: true })
+
+        this.renderToDot(props.diagram, targetDotPath, props.theme)
         await Graphviz.generatePng(targetDotPath, targetPngPath)
+
+        if (props.theme) {
+            await PostProcessor.apply(targetPngPath, props.theme)
+        }
 
         return new GraphvizRenderingOutput(targetPngPath, "png")
     }
@@ -52,9 +60,9 @@ export class Graphviz implements DiagramRenderer {
     /*
      *  renders a `diagram.Diagram` to a dot file
      */
-    renderToDot(dia: diagram.Diagram, targetDotPath: string): void {
+    renderToDot(dia: diagram.Diagram, targetDotPath: string, theme?: import('../../brand/theme').CdkDiaTheme): void {
 
-        const graphRoot = new GraphvizGenerator().generate(dia)
+        const graphRoot = new GraphvizGenerator().generate(dia, theme)
 
         // generate Dot representation
         const dot = toDot(graphRoot)
@@ -112,6 +120,31 @@ export class Graphviz implements DiagramRenderer {
                 [stdout, stderr],
                 [". make sure Graphviz is installed and available in the PATH"])
         }
+    }
+
+    /**
+     * Renders a pre-built ts-graphviz RootGraphModel to PNG (used by topology renderer).
+     */
+    static async renderGraphModel(
+        model: RootGraphModel,
+        targetPngPath: string,
+        theme?: import('../../brand/theme').CdkDiaTheme,
+    ): Promise<GraphvizRenderingOutput> {
+        const basePath = targetPngPath.replace(/\.[^/.]+$/, "")
+        const dotPath = `${basePath}.dot`
+
+        fs.mkdirSync(path.dirname(path.resolve(targetPngPath)), { recursive: true })
+
+        const dot = toDot(model)
+        fs.writeFileSync(dotPath, dot)
+
+        await Graphviz.generatePng(dotPath, targetPngPath)
+
+        if (theme) {
+            await PostProcessor.apply(targetPngPath, theme)
+        }
+
+        return new GraphvizRenderingOutput(targetPngPath, 'png')
     }
 
     private static GRAPHVIZ_BINARY = "dot"

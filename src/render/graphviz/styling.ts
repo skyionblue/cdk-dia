@@ -1,15 +1,19 @@
 import {NodeModel, RootGraphModel, SubgraphModel} from "ts-graphviz"
 import {ComponentIcon, ComponentIconFormat} from "../../diagram/component/icon"
 import {ColorPalette} from "../styling"
+import {CdkDiaTheme} from "../../brand/theme"
 
-export function applyBaseGraphStyling(graph: RootGraphModel): void {
+export function applyBaseGraphStyling(graph: RootGraphModel, theme?: CdkDiaTheme): void {
+
+    const fontName = theme?.fontName ?? 'Sans-Serif'
+    const edgeColor = theme?.primaryColor ? `${theme.primaryColor}88` : '#D5871488'
 
     // Graph
     graph.set("splines", "ortho")
     graph.set("pad", 1.0)
     graph.set("nodesep", 0.60)
     graph.set("ranksep", 0.75)
-    graph.set("fontname", "Sans-Serif")
+    graph.set("fontname", fontName)
     graph.set("fontsize", 15)
     graph.set("dpi", 200)
     graph.set("rankdir", "BT")
@@ -24,18 +28,18 @@ export function applyBaseGraphStyling(graph: RootGraphModel): void {
     graph.attributes.node.set("height", 1.7)
     graph.attributes.node.set("labelloc", "c") // was b
     graph.attributes.node.set("imagescale", true)
-    graph.attributes.node.set("fontname", "Sans-Serif")
+    graph.attributes.node.set("fontname", fontName)
     graph.attributes.node.set("fontsize", 8)
     graph.attributes.node.set("margin", 8)
 
     // edges
-    graph.attributes.edge.set("color", "#D5871488")
+    graph.attributes.edge.set("color", edgeColor)
     graph.attributes.edge.set("penwidth", 2.0)
     graph.attributes.edge.set("arrowhead", "dot")
     graph.attributes.edge.set("arrowtail", "dot")
 }
 
-export function applyClusterStyling(subGraph: SubgraphModel, depth: number): void {
+export function applyClusterStyling(subGraph: SubgraphModel, depth: number, theme?: CdkDiaTheme): void {
 
     subGraph.attributes.graph.set("labelloc", "b")
     subGraph.attributes.graph.set("labeljust", "l")
@@ -45,7 +49,7 @@ export function applyClusterStyling(subGraph: SubgraphModel, depth: number): voi
     subGraph.attributes.graph.set("penwidth", 2)
     subGraph.attributes.graph.set("pencolor", "#888888")
     subGraph.attributes.graph.set("style", "filled,rounded")
-    subGraph.attributes.graph.set("fillcolor", ColorPalette.byInd(depth))
+    subGraph.attributes.graph.set("fillcolor", ColorPalette.byInd(depth, theme?.clusterBaseColor))
 }
 
 export function applyBasicNodeStyling(gnode: NodeModel, labelFontSize: number): void {
