@@ -3,6 +3,7 @@ import chalk from "chalk"
 import yargs from "yargs/yargs"
 import * as path from "path"
 import * as fs from "fs"
+import * as readline from "readline"
 import {CdkDia, Renderers} from "../src/cdk-dia"
 import * as rendering from "../src/render/index"
 import {loadTheme, mergeThemeOverrides} from "../src/brand/theme-loader"
@@ -148,12 +149,128 @@ function notifyRenderingError(e: rendering.RenderingError) {
     })
 }
 
-initCli()
-    .then(args => {
-        generateDiagram(args)
-            .catch(printError)
+async function runInitCommand() {
+    console.log(chalk.blue.bold('\n🎨 CDK Diagram Setup\n'))
+
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+        terminal: false  // Allow non-TTY input
     })
-    .catch(printError)
+
+    const question = (prompt: string): Promise<string> => {
+        return new Promise(resolve => {
+            // For non-TTY (piped input), write the prompt to stderr so it doesn't interfere
+            if (!process.stdin.isTTY) {
+                process.stderr.write(prompt)
+            }
+            rl.question(prompt, resolve)
+        })
+    }
+
+    try {
+        // Find package.json
+        const packageJsonPath = path.join(process.cwd(), 'package.json')
+        if (!fs.existsSync(packageJsonPath)) {
+            console.error(chalk.red('❌ No package.json found in current directory'))
+            process.exit(1)
+        }
+
+        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'))
+
+        // Check if cdk-dia is installed
+        const hasCdkDia = packageJson.devDependencies?.['@skyionblue/cdk-dia'] ||
+                         packageJson.dependencies?.['@skyionblue/cdk-dia']
+        if (!hasCdkDia) {
+            console.log(chalk.yellow('⚠️  @skyionblue/cdk-dia not found in dependencies'))
+            console.log(chalk.gray('   Run: pnpm add -D @skyionblue/cdk-dia\n'))
+        }
+
+        // Auto-detect stack names from cdk.out
+        let detectedStacks: string[] = []
+        const cdkOutPath = path.join(process.cwd(), 'cdk.out/tree.json')
+        if (fs.existsSync(cdkOutPath)) {
+            const treeJson = JSON.parse(fs.readFileSync(cdkOutPath, 'utf-8'))
+            detectedStacks = Object.keys(treeJson?.tree?.children ?? {})
+                .filter(k => k !== 'Tree' && !k.startsWith('Asset'))
+        }
+
+        // Prompt for stack name
+        const defaultStack = detectedStacks.length > 0 ? detectedStacks[0] : 'MyStack'
+        const stackNameInput = await question(
+            chalk.cyan(`📦 Stack name${detectedStacks.length > 0 ? ` (detected: ${detectedStacks.join(', ')})` : ''}: `) +
+            chalk.gray(`(${defaultStack}) `)
+        )
+        const stackName = stackNameInput.trim() || defaultStack
+
+        // Prompt for topology
+        const topologyInput = await question(
+            chalk.cyan('🌐 Generate topology diagrams? ') + chalk.gray('(Y/n) ')
+        )
+        const includeTopology = !topologyInput.trim() || topologyInput.toLowerCase() === 'y'
+
+        // Build scripts
+        const scripts: Record<string, string> = {
+            'diagram': `tm-cdk-dia --stacks ${stackName} --per-stack --title "${stackName} Infrastructure"`,
+        }
+
+        if (includeTopology) {
+            scripts['diagram:topology'] = 'tm-cdk-dia --topology --target-path diagrams/topology.png --title "Network Topology"'
+            scripts['diagram:all'] = 'npm run diagram && npm run diagram:topology'
+        }
+
+        // Update package.json
+        packageJson.scripts = packageJson.scripts || {}
+        let addedCount = 0
+        let skippedCount = 0
+
+        for (const [scriptName, scriptCmd] of Object.entries(scripts)) {
+            if (packageJson.scripts[scriptName]) {
+                console.log(chalk.yellow(`⚠️  Script "${scriptName}" already exists, skipping`))
+                skippedCount++
+            } else {
+                packageJson.scripts[scriptName] = scriptCmd
+                addedCount++
+            }
+        }
+
+        if (addedCount > 0) {
+            fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2) + '\n', 'utf-8')
+            console.log(chalk.green(`\n✅ Added ${addedCount} diagram script(s) to package.json`))
+
+            console.log(chalk.blue('\nYou can now run:'))
+            for (const scriptName of Object.keys(scripts)) {
+                if (!packageJson.scripts[scriptName] || addedCount > 0) {
+                    console.log(chalk.gray(`  npm run ${scriptName}`))
+                }
+            }
+        } else {
+            console.log(chalk.yellow('\n⚠️  No scripts added (all already exist)'))
+        }
+
+        if (skippedCount > 0) {
+            console.log(chalk.gray('\nTip: Remove existing diagram scripts from package.json to regenerate them\n'))
+        } else {
+            console.log()
+        }
+
+    } finally {
+        rl.close()
+    }
+}
+
+// Check if first arg is "init" command
+const firstArg = process.argv[2]
+if (firstArg === 'init') {
+    runInitCommand().catch(printError)
+} else {
+    initCli()
+        .then(args => {
+            generateDiagram(args)
+                .catch(printError)
+        })
+        .catch(printError)
+}
 
 interface cdkDiaCliArgs {
     'cdk-tree-path': string,

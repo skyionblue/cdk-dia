@@ -162,6 +162,7 @@ export class AwsTopologyGenerator {
         const subnetKeys = this.buildSubnetKeyMap(cdkTree.tree)
         const resources = this.collectResources(cdkTree.tree, includedStacks, subnetKeys, theme)
         this.resolveEcsHierarchy(resources, cdkTree.tree)
+        this.addEc2InstancesForAutoScalingGroups(resources, theme)
         const edges = this.resolveEdges(cdkTree.tree, includedStacks, resources)
         const networkOutputs = cdkOutPath
             ? this.collectNetworkOutputsFromTemplates(cdkOutPath, includedStacks)
@@ -258,8 +259,11 @@ export class AwsTopologyGenerator {
             // If not found, search the parent construct's full subtree (handles indirect
             // references like RDS clusters whose subnet info lives in a sibling DBSubnetGroup).
             let placement = this.detectPlacement(cfnProps, subnetKeys)
-            // Internet Gateway has no VPC refs in its own props — force it to VPC level
+            // Force VPC placement for resources that belong in VPC but don't have explicit subnet refs
             if (effectiveCfnType === 'AWS::EC2::InternetGateway') placement = 'VPC'
+            if (effectiveCfnType === 'AWS::EC2::LaunchTemplate') placement = 'VPC'
+            if (effectiveCfnType === 'AWS::Route53::RecordSet') placement = 'VPC'
+            if (effectiveCfnType === 'AWS::Route53::HostedZone') placement = 'VPC'
             if (placement === 'VPC' && parentNode) {
                 placement = this.detectPlacementInSubtree(parentNode, subnetKeys)
             }
@@ -415,6 +419,31 @@ export class AwsTopologyGenerator {
                     }
                 }
             }
+        }
+    }
+
+    // Add synthetic EC2 instances for AutoScaling Groups to show actual compute resources
+    private addEc2InstancesForAutoScalingGroups(resources: TopologyResource[], _theme: CdkDiaTheme): void {
+        const asgs = resources.filter(r => r.cfnType === 'AWS::AutoScaling::AutoScalingGroup')
+        if (!asgs.length) return
+
+        for (const asg of asgs) {
+            // Create a synthetic EC2 instance resource
+            const instanceId = `${asg.id}_EC2Instance`
+            const instanceLabel = 'EC2 Instance'
+            const instanceIcon = this.iconSupplier.matchIcon('AWS::EC2::Instance', {})
+
+            // EC2 instances inherit the placement from their ASG
+            const instanceResource: TopologyResource = {
+                id: instanceId,
+                label: instanceLabel,
+                icon: instanceIcon,
+                placement: asg.placement,
+                logicalId: `${asg.logicalId}Instance`,
+                cfnType: 'AWS::EC2::Instance'
+            }
+
+            resources.push(instanceResource)
         }
     }
 
@@ -662,6 +691,30 @@ export class AwsTopologyGenerator {
             }
         }
 
+        // Architectural rule: ALB → ASG → LaunchTemplate → EC2 Instance (flow).
+        // Show the traffic and provisioning flow from load balancer through to instances.
+        const albs = resources.filter(r => r.cfnType === 'AWS::ElasticLoadBalancingV2::LoadBalancer')
+        const asgs = resources.filter(r => r.cfnType === 'AWS::AutoScaling::AutoScalingGroup')
+        const ec2Instances = resources.filter(r => r.cfnType === 'AWS::EC2::Instance')
+        const launchTemplates = resources.filter(r => r.cfnType === 'AWS::EC2::LaunchTemplate')
+
+        // ALB → ASG (traffic flow)
+        if (albs.length > 0 && asgs.length > 0) {
+            edges.push({ fromId: albs[0].id, toId: asgs[0].id, dashed: false })
+        }
+
+        // ASG → Launch Template (provisioning relationship)
+        if (asgs.length > 0 && launchTemplates.length > 0) {
+            edges.push({ fromId: asgs[0].id, toId: launchTemplates[0].id, dashed: false })
+        }
+
+        // Launch Template → EC2 Instance (template creates instances)
+        for (const instance of ec2Instances) {
+            if (launchTemplates.length > 0) {
+                edges.push({ fromId: launchTemplates[0].id, toId: instance.id, dashed: false })
+            }
+        }
+
         // Deduplicate exact duplicates first
         const seen = new Set<string>()
         const deduped = edges.filter(e => {
@@ -744,6 +797,13 @@ export class AwsTopologyGenerator {
                 if (fromRes.cfnType === 'AWS::IAM::Policy' || target.cfnType === 'AWS::IAM::Policy') continue
                 // Skip edges FROM Lambda custom resources (they connect to many services for bootstrap)
                 if (fromRes.cfnType === 'AWS::Lambda::Function' && fromRes.label.includes('Custom')) continue
+
+                // Skip edges FROM certificates (certs don't call other resources, they're referenced BY them)
+                if (fromRes.cfnType === 'AWS::CertificateManager::Certificate') continue
+                // Skip edges FROM launch templates (templates don't connect to certs, ASG connects to template)
+                if (fromRes.cfnType === 'AWS::EC2::LaunchTemplate' && target.cfnType === 'AWS::CertificateManager::Certificate') continue
+                // Skip edges FROM ASG to certificates (ASG doesn't use certs directly, ALB does)
+                if (fromRes.cfnType === 'AWS::AutoScaling::AutoScalingGroup' && target.cfnType === 'AWS::CertificateManager::Certificate') continue
                 // Match by partial construct path: target's path parts (excluding stack names)
                 // appear in the expanded props JSON as CFN logical ID fragments.
                 // For IAM Roles, use length >= 7 to include "IAMRole" but exclude generic "Role".

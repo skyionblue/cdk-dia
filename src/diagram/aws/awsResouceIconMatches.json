@@ -178,7 +178,7 @@
       },
       {
         "resourceType": "AWS::EC2::LaunchTemplate",
-        "filePath": null
+        "filePath": "icons/aws/Resource/Res_Compute/Res_48_Dark/Res_Amazon-EC2_LaunchTemplate_64.png"
       },
       {
         "resourceType": "AWS::EC2::SpotFleet",

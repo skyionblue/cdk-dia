@@ -47,6 +47,9 @@ export class AwsDiagramGenerator extends DiagramGenerator{
         // remove CDK Assets (useful as they are usually not diagram relevant)
         this.removeCdkAssets(diagram.root)
 
+        // add synthetic EC2 instances for AutoScaling Groups
+        this.addEc2InstancesForAutoScalingGroups(diagram.root)
+
         // remove Lambda Permissions and other low-level plumbing resources
         this.removeLowLevelResources(diagram.root)
 
@@ -338,6 +341,51 @@ export class AwsDiagramGenerator extends DiagramGenerator{
         }
         resource.collapseToParent()
         return resource
+    }
+
+    /**
+     * Adds synthetic EC2 instances as children of AutoScaling Groups to show the actual compute resources
+     */
+    private addEc2InstancesForAutoScalingGroups(node: Component) {
+        node.subComponents().forEach(sub => {
+            // Recurse first
+            this.addEc2InstancesForAutoScalingGroups(sub)
+
+            // Check if this is an AutoScaling Group
+            if (sub instanceof DiagramComponent) {
+                const cfnType = this.getCfnTypeFromComponent(sub)
+                if (cfnType === 'AWS::AutoScaling::AutoScalingGroup') {
+                    // Create a synthetic EC2 instance as a child of the ASG
+                    const instanceId = `${sub.id}_EC2Instance`
+                    const instanceComponent = new DiagramComponent(
+                        instanceId,
+                        ['EC2 Instance'],
+                        sub
+                    )
+
+                    // Set the EC2 instance icon
+                    const ec2Icon = this.iconSupplier.matchIcon('AWS::EC2::Instance', {})
+                    if (ec2Icon) {
+                        instanceComponent.setIcon(ec2Icon)
+                    }
+
+                    // Add as child of the ASG
+                    sub.addSubComponent(instanceComponent)
+                }
+            }
+        })
+    }
+
+    /**
+     * Helper to get CFN type from a component by checking its ID or path
+     */
+    private getCfnTypeFromComponent(component: Component): string | null {
+        // Try to infer from the component's structure
+        // AutoScaling groups typically have "ASG" in their path/id
+        if (component.id.includes('AutoScalingGroup') || component.id.includes('ASG')) {
+            return 'AWS::AutoScaling::AutoScalingGroup'
+        }
+        return null
     }
 
     /**
