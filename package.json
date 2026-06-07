@@ -18,7 +18,8 @@
     "dist",
     "icons",
     "themes",
-    "assets"
+    "assets",
+    "README.md"
   ],
   "author": "TrueMark",
   "license": "MIT",
