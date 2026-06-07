@@ -21,7 +21,7 @@
     "assets",
     "README.md"
   ],
-  "author": "TrueMark",
+  "author": "Louie Celli",
   "license": "MIT",
   "dependencies": {
     "aws-cdk-lib": "^2.201.0",

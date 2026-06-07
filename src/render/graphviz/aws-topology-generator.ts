@@ -259,12 +259,18 @@ export class AwsTopologyGenerator {
             // If not found, search the parent construct's full subtree (handles indirect
             // references like RDS clusters whose subnet info lives in a sibling DBSubnetGroup).
             let placement = this.detectPlacement(cfnProps, subnetKeys)
+            // Force VPC placement for resources that belong at VPC boundary
+            const isVpcBoundaryResource = effectiveCfnType === 'AWS::EC2::InternetGateway' ||
+                                         effectiveCfnType === 'AWS::EC2::NatGateway'
+            if (isVpcBoundaryResource) {
+                placement = 'VPC'
+            }
             // Force VPC placement for resources that belong in VPC but don't have explicit subnet refs
-            if (effectiveCfnType === 'AWS::EC2::InternetGateway') placement = 'VPC'
             if (effectiveCfnType === 'AWS::EC2::LaunchTemplate') placement = 'VPC'
             if (effectiveCfnType === 'AWS::Route53::RecordSet') placement = 'VPC'
             if (effectiveCfnType === 'AWS::Route53::HostedZone') placement = 'VPC'
-            if (placement === 'VPC' && parentNode) {
+            // For non-boundary resources, search parent subtree for subnet placement
+            if (placement === 'VPC' && parentNode && !isVpcBoundaryResource) {
                 placement = this.detectPlacementInSubtree(parentNode, subnetKeys)
             }
 
@@ -628,6 +634,11 @@ export class AwsTopologyGenerator {
         name = name.replace(/Subnet$/i, '')
         name = name.replace(/CidrBlock$/i, '')
 
+        // Check if this is just a VPC hash (8 hex chars) after all transformations
+        if (/^[A-Z0-9]{8}$/i.test(name.trim())) {
+            return 'VPC'
+        }
+
         // Now handle specific patterns
         if (!name || name.toLowerCase() === 'cidrblock' || name === '') {
             return 'VPC'
@@ -968,8 +979,15 @@ export class AwsTopologyGenerator {
         }
 
         // Place each resource into its container (ECS Cluster subgraph, zone, vpc, or external)
+        const gatewayResources: TopologyResource[] = []
         for (const res of resources) {
             if (res.cfnType === 'AWS::ECS::Cluster') continue  // rendered as subgraph, not a node
+
+            // Special handling for IGW and NAT Gateway - position them separately
+            if (res.cfnType === 'AWS::EC2::InternetGateway' || res.cfnType === 'AWS::EC2::NatGateway') {
+                gatewayResources.push(res)
+                continue
+            }
 
             let container: SubgraphModel
             if (res.ecsClusterId && ecsClusterSubgraphs.has(res.ecsClusterId)) {
@@ -982,6 +1000,11 @@ export class AwsTopologyGenerator {
                 container = awsCloud  // EXTERNAL
             }
             this.addNode(container, res, fontName)
+        }
+
+        // Position gateways on the left edge of the VPC, at the top
+        if (gatewayResources.length > 0) {
+            this.positionGatewaysOnLeftEdge(vpcCluster, gatewayResources, fontName, graph, zoneSubgraphs, resources)
         }
 
         // Chain IAM roles vertically with invisible edges to keep them stacked
@@ -1072,6 +1095,68 @@ ${rows}
         node.attributes.set('height', 0)
 
         return nodeId
+    }
+
+    private positionGatewaysOnLeftEdge(
+        vpcCluster: SubgraphModel,
+        gateways: TopologyResource[],
+        fontName: string,
+        graph: RootGraphModel,
+        _zoneSubgraphs: Map<SubnetType, SubgraphModel>,
+        allResources: TopologyResource[],
+    ): void {
+        // Create a subgraph to position gateways side-by-side at the same rank
+        const gatewaySubgraph = vpcCluster.createSubgraph('gateway_horizontal_group')
+        gatewaySubgraph.attributes.graph.set('rank', 'same')
+        gatewaySubgraph.attributes.graph.set('style', 'invis')
+
+        // Add gateway nodes to the gateway subgraph to keep them at same rank
+        for (const gateway of gateways) {
+            this.addNode(gatewaySubgraph, gateway, fontName)
+        }
+
+        // Add horizontal invisible edge between gateways to control left-right ordering
+        // IGW on left, NAT on right
+        if (gateways.length === 2) {
+            graph.createEdge([gateways[0].id, gateways[1].id], {
+                style: 'invis',
+                weight: 100,
+                minlen: 1,
+            })
+        }
+
+        // Find a resource in PUBLIC subnets to anchor gateways to the top
+        const publicResources = allResources.filter(r =>
+            r.placement === 'PUBLIC' &&
+            r.cfnType !== 'AWS::EC2::InternetGateway' &&
+            r.cfnType !== 'AWS::EC2::NatGateway'
+        )
+
+        // Connect gateways ABOVE public resources with invisible edges to force them to top
+        // In TB layout, edges flow downward, so to put gateways at top, create edges FROM gateways TO resources
+        if (gateways.length > 0 && publicResources.length > 0) {
+            // Connect first gateway (IGW) to NLB/public resources
+            graph.createEdge([gateways[0].id, publicResources[0].id], {
+                style: 'invis',
+                weight: 1000,
+                minlen: 2,
+            })
+        }
+
+        // Also connect NAT to first resource in PRIVATE subnets
+        const privateResources = allResources.filter(r =>
+            r.placement === 'PRIVATE' &&
+            r.cfnType !== 'AWS::EC2::InternetGateway' &&
+            r.cfnType !== 'AWS::EC2::NatGateway'
+        )
+        if (gateways.length > 1 && privateResources.length > 0) {
+            // Connect NAT Gateway to private resources
+            graph.createEdge([gateways[1].id, privateResources[0].id], {
+                style: 'invis',
+                weight: 800,
+                minlen: 2,
+            })
+        }
     }
 
     private addNode(container: SubgraphModel, res: TopologyResource, fontName: string): void {
