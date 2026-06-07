@@ -1,5 +1,5 @@
 {
-  "name": "@skyionblue/cdk-dia",
+  "name": "@skyioinblue/cdk-dia",
   "version": "1.0.1",
   "description": "Automated diagrams of CDK provisioned infrastructure with branding support",
   "scripts": {
