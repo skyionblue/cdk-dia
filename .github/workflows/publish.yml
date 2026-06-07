@@ -21,26 +21,19 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      - uses: pnpm/action-setup@v6
-        with:
-          version: latest
-
-      - name: Configure pnpm to allow build scripts
-        run: pnpm config set ignore-scripts false
-
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npm ci
 
       - name: Install Graphviz
         run: sudo apt-get install -y graphviz
 
       - name: Build
-        run: pnpm build
+        run: npm run build
 
       - name: Test
-        run: pnpm test
+        run: npm test
 
       - name: Publish
-        run: pnpm publish --no-git-checks
+        run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
