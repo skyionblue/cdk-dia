@@ -1,6 +1,6 @@
 {
   "name": "@skyionblue/cdk-dia",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Automated diagrams of CDK provisioned infrastructure with branding support",
   "scripts": {
     "build-watch": "tsc --watch",
