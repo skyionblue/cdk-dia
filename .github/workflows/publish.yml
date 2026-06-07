@@ -26,7 +26,7 @@ jobs:
           version: latest
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --config.ignore-scripts=false
 
       - name: Install Graphviz
         run: sudo apt-get install -y graphviz
