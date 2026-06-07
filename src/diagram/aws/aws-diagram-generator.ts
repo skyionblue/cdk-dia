@@ -47,6 +47,9 @@ export class AwsDiagramGenerator extends DiagramGenerator{
         // remove CDK Assets (useful as they are usually not diagram relevant)
         this.removeCdkAssets(diagram.root)
 
+        // remove Lambda Permissions and other low-level plumbing resources
+        this.removeLowLevelResources(diagram.root)
+
         // collapse "DoubleClusters" - components which have only one child which is a Cluster it self - prevents multiple frames
         if (collapseDoubleClusters) diagram.root = this.collapseDoubleClusters(diagram.root)
 
@@ -223,9 +226,21 @@ export class AwsDiagramGenerator extends DiagramGenerator{
 
     private generateCfnComponent(node: cdk.Node, cfnType: string, cleanedResource: string, parent: Component): DiagramComponent {
 
+        // Extract meaningful name from path if node.id is "Resource"
+        // Path format: "StackName/ConstructName/SubConstruct/Resource"
+        // We want to use "SubConstruct" instead of "Resource"
+        let displayId = node.id
+        if (displayId === "Resource") {
+            const pathParts = node.path.split("/")
+            if (pathParts.length > 1) {
+                // Use the second-to-last part of the path (the parent construct name)
+                displayId = pathParts[pathParts.length - 2]
+            }
+        }
+
         const component = new DiagramComponent(
             AwsDiagramGenerator.sanitizeComponentId(node.path),
-            AwsDiagramGenerator.cleanLabel([cleanedResource, node.id]),
+            AwsDiagramGenerator.cleanLabel([cleanedResource, displayId]),
             parent)
 
         const icon: ComponentIcon = this.iconSupplier.matchIcon(cfnType, node.attributes.get("aws:cdk:cloudformation:props") as Record<string, string>)
@@ -236,7 +251,7 @@ export class AwsDiagramGenerator extends DiagramGenerator{
             // generate longer label instead of the icon
             component.label = [
                 ...cfnType.split("::").slice(1).map(it => { return it.toUpperCase() }),
-                node.id
+                displayId
                 ]
         }
 
@@ -305,8 +320,59 @@ export class AwsDiagramGenerator extends DiagramGenerator{
         if (parent == null || resource == null) return
 
         parent.icon = resource.icon
+        // Preserve parent's more meaningful label if resource label is generic
+        // This keeps "ReplicationFn" instead of "Lambda Function"
+        if (resource instanceof DiagramComponent && parent instanceof DiagramComponent) {
+            const resourceLabel = resource.label.join(' ').toLowerCase()
+            const isGenericLabel = resourceLabel.includes('function') ||
+                                   resourceLabel.includes('bucket') ||
+                                   resourceLabel.includes('table') ||
+                                   resourceLabel === 'resource'
+            if (isGenericLabel && parent.label.length > 0 && parent.label[0] !== 'Resource') {
+                // Keep parent's label instead of resource's generic one
+                // Already has the parent label, so no change needed
+            } else {
+                // Use resource's label if it's more specific
+                parent.label = resource.label
+            }
+        }
         resource.collapseToParent()
         return resource
+    }
+
+    /**
+     * Removes low-level resources that clutter diagrams
+     */
+    private removeLowLevelResources(node: Component) {
+        const toRemove: Component[] = []
+        node.subComponents().forEach(sub => {
+            // First recurse to remove children
+            this.removeLowLevelResources(sub)
+
+            // Fix labels for auto-generated custom resource provider Lambdas (AWS679f53fac...)
+            if (sub.id.match(/AWS[0-9a-f]{32}/i) && sub.label.length > 0) {
+                // This is an auto-generated Lambda - give it a better name
+                sub.label = ['Custom Resource', 'Provider Lambda']
+            }
+
+            // Check if this is a Lambda Permission or other plumbing resource
+            const isLambdaPermission = sub.id.includes('AllowCloudFormation') ||
+                                       sub.id.includes('Permission') && sub.subComponents().length === 0
+            const isLogGroup = sub.id.includes('LogGroup')
+
+            // Also remove empty container constructs (like "Logging" after LogGroup is removed)
+            const isEmptyContainer = sub.subComponents().length === 0 &&
+                                     !sub.icon &&
+                                     (sub.id.includes('Logging') || sub.id.includes('Networking'))
+
+            if (isLambdaPermission || isLogGroup || isEmptyContainer) {
+                toRemove.push(sub)
+            }
+        })
+        toRemove.forEach(sub => {
+            sub.removeAndDestroyAllSubComponents()
+            node.removeSubComponent(sub)
+        })
     }
 
     /**

@@ -89,6 +89,14 @@ const TOPOLOGY_HIDDEN_TYPES = new Set([
     'AWS::SNS::TopicPolicy',
     // Configuration / parameter store — infrastructure config, not architecture nodes
     'AWS::SSM::Parameter',
+    'AWS::SSM::Association',           // SSM document associations - operational, not architectural
+    // Directory Service outputs/parameters (not the directory itself)
+    'AWS::SSM::MaintenanceWindowTarget',
+    'AWS::SSM::PatchBaseline',         // Patch management - operational detail
+    // Lambda supporting resources
+    'AWS::Lambda::Permission',          // Lambda invoke permissions - plumbing
+    // S3 replication buckets in other regions - secondary copies
+    // (Keep primary buckets but hide cross-region replication targets)
     // CDK / CloudFormation internals
     'AWS::CloudFormation::CustomResource',
     'AWS::CDK::Metadata',
@@ -112,6 +120,9 @@ const EDGE_EXCLUDED_TYPES = new Set([
     'AWS::EC2::NatGateway',
     'AWS::EC2::InternetGateway',
     'AWS::ECS::Cluster',
+    // Lambda functions used for custom resources create many edges to IAM/KMS/other services
+    // Comment out the next line if you want to see Lambda edges in topology diagrams
+    // 'AWS::Lambda::Function',
 ])
 
 // Whitelist of hidden CFN types whose props are expanded into the containing visible resource's
@@ -164,15 +175,22 @@ export class AwsTopologyGenerator {
         const keys: SubnetKey[] = []
         appNode.children.forEach(stackNode => {
             stackNode.children.forEach(child => {
-                if (child.id !== 'Vpc') return
+                // Support both 'Vpc' (CDK-created) and other VPC construct names (imported)
+                const isVpcConstruct = child.id === 'Vpc' ||
+                                      child.id.toLowerCase().includes('vpc') ||
+                                      child.id === 'Networking'
+                if (!isVpcConstruct) return
+
                 child.children.forEach(vpcChild => {
                     const name = vpcChild.id
                     const lower = name.toLowerCase()
                     let type: SubnetType | null = null
-                    if (lower.startsWith('public')) type = 'PUBLIC'
-                    else if (lower.startsWith('private')) type = 'PRIVATE'
-                    else if (lower.startsWith('isolated')) type = 'ISOLATED'
-                    if (type && vpcChild.children.has('Subnet')) {
+                    if (lower.startsWith('public') || lower.includes('public')) type = 'PUBLIC'
+                    else if (lower.startsWith('private') || lower.includes('private')) type = 'PRIVATE'
+                    else if (lower.startsWith('isolated') || lower.includes('isolated')) type = 'ISOLATED'
+
+                    // Accept both created subnets (have 'Subnet' child) and imported subnets (no children)
+                    if (type && (vpcChild.children.has('Subnet') || vpcChild.children.size === 0)) {
                         keys.push({ constructName: name, type })
                     }
                 })
@@ -299,6 +317,12 @@ export class AwsTopologyGenerator {
         // e.g. LvWordPressStack/WordPressService/Default/Service → "WordPressService"
         const skip = new Set(['Resource', 'Default', 'Service', 'Writer', 'writer'])
         const pathParts = node.path.split('/')
+
+        // Special handling for auto-generated Lambda provider functions (AWS679f53fac...)
+        const lastPart = pathParts[pathParts.length - 1]
+        if (lastPart.match(/^AWS[0-9a-f]{32}$/i) && cfnType === 'AWS::Lambda::Function') {
+            return 'Custom Resource Provider'
+        }
 
         // For IAM Roles: find the owning resource name (one level up from Role/TaskRole/ExecutionRole)
         // e.g. DbProxy/IAMRole/Resource → "DB Proxy IAM Role"
@@ -711,8 +735,15 @@ export class AwsTopologyGenerator {
                 // Skip networking infrastructure as edge endpoints — they create too many
                 // false-positive matches because their path parts appear in every cross-stack ref
                 if (EDGE_EXCLUDED_TYPES.has(fromRes.cfnType) || EDGE_EXCLUDED_TYPES.has(target.cfnType)) continue
-                // Skip IAM Role → IAM Role edges (trust policy cross-references create false positives)
-                if (fromRes.cfnType === 'AWS::IAM::Role' && target.cfnType === 'AWS::IAM::Role') continue
+                // Skip ALL IAM Role edges in topology mode to reduce visual clutter
+                // (IAM permissions are operational detail, not architectural flow)
+                // Comment out the next two lines if you want to see IAM Role edges
+                if (fromRes.cfnType === 'AWS::IAM::Role' || target.cfnType === 'AWS::IAM::Role') continue
+                // Skip ALL IAM Policy edges (they create a web of permission connections)
+                if (fromRes.cfnType === 'AWS::IAM::ManagedPolicy' || target.cfnType === 'AWS::IAM::ManagedPolicy') continue
+                if (fromRes.cfnType === 'AWS::IAM::Policy' || target.cfnType === 'AWS::IAM::Policy') continue
+                // Skip edges FROM Lambda custom resources (they connect to many services for bootstrap)
+                if (fromRes.cfnType === 'AWS::Lambda::Function' && fromRes.label.includes('Custom')) continue
                 // Match by partial construct path: target's path parts (excluding stack names)
                 // appear in the expanded props JSON as CFN logical ID fragments.
                 // For IAM Roles, use length >= 7 to include "IAMRole" but exclude generic "Role".

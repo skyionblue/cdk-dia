@@ -43,8 +43,14 @@ export class Cytoscape implements DiagramRenderer {
      */
     private async renderToCytoscape(dia: diagram.Diagram, targetFolder: string, iconsPath: string) {
 
-        // copy our Cytoscape base
-        fs_extra.copySync(__dirname + '/base', targetFolder)
+        // copy our Cytoscape base - handle both running from src and dist
+        const basePath = path.join(__dirname, 'base')
+        // If base/base exists (nested during build), use the inner one
+        const actualBasePath = fs.existsSync(path.join(basePath, 'base'))
+            ? path.join(basePath, 'base')
+            : basePath
+
+        fs_extra.copySync(actualBasePath, targetFolder)
         // copy icons
         fs_extra.copySync(iconsPath + '/icons',  targetFolder+ '/icons')
 

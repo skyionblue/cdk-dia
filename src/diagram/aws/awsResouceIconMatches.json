@@ -2806,7 +2806,7 @@
       },
       {
         "resourceType": "AWS::SSM::Document",
-        "filePath": null
+        "filePath": "icons/aws/Resource/Res_Management-Governance/Res_48_Dark/Res_AWS-Systems-Manager_Document_64.png"
       },
       {
         "resourceType": "AWS::SSM::MaintenanceWindow",
@@ -2814,7 +2814,7 @@
       },
       {
         "resourceType": "AWS::SSM::Parameter",
-        "filePath": "icons/aws/Resource/Res_Management-Governance/Res_48_Dark/Res_AWS-Systems-Manager_Parameter-Store_48_Dark.png"
+        "filePath": "icons/aws/Resource/Res_Management-Governance/Res_48_Dark/Res_AWS-Systems-Manager_Parameter-Store_64.png"
       },
       {
         "resourceType": "AWS::SSM::ResourceDataSync",
